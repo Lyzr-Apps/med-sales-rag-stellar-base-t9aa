@@ -111,7 +111,116 @@ function safeParseResult(result: any): any {
   if (typeof result === 'string') {
     try { return JSON.parse(result) } catch { return { answer: result } }
   }
-  return result
+  if (typeof result === 'object') {
+    // Handle nested stringified JSON inside result fields
+    if (typeof result.answer === 'string' && result.answer.startsWith('{')) {
+      try {
+        const inner = JSON.parse(result.answer)
+        return { ...result, ...inner }
+      } catch { /* keep original */ }
+    }
+    return result
+  }
+  return { answer: String(result) }
+}
+
+/**
+ * Deep extraction: tries every known path the Lyzr API might return data through.
+ * This handles manager-subagent patterns where responses can be nested multiple levels.
+ */
+function deepExtractResponse(apiResult: any): {
+  answer: string
+  sources_consulted: string[]
+  compliance_status: string
+  domains_accessed: string[]
+  confidence: string
+  flags: string[]
+} {
+  const defaults = {
+    answer: '',
+    sources_consulted: [] as string[],
+    compliance_status: 'compliant',
+    domains_accessed: [] as string[],
+    confidence: 'medium',
+    flags: [] as string[],
+  }
+
+  if (!apiResult) return defaults
+
+  // Path 1: result.response.result (standard structured JSON)
+  let data: any = null
+
+  const responseObj = apiResult.response
+  if (responseObj) {
+    // Try result.response.result first
+    if (responseObj.result) {
+      data = safeParseResult(responseObj.result)
+    }
+    // Try result.response.message if result is empty
+    if ((!data || !data.answer) && responseObj.message) {
+      const msgParsed = safeParseResult(responseObj.message)
+      if (msgParsed.answer) {
+        data = msgParsed
+      } else if (typeof responseObj.message === 'string' && responseObj.message.length > 0) {
+        data = { ...defaults, answer: responseObj.message }
+      }
+    }
+    // Try result.response.result.text, .response, .content, etc.
+    if (data && !data.answer) {
+      const textKeys = ['text', 'response', 'content', 'message', 'answer_text', 'summary', 'output']
+      for (const key of textKeys) {
+        if (data[key] && typeof data[key] === 'string') {
+          data.answer = data[key]
+          break
+        }
+      }
+    }
+  }
+
+  // Path 2: Top-level fields on apiResult itself
+  if (!data || !data.answer) {
+    if (apiResult.answer) {
+      data = safeParseResult(apiResult)
+    } else if (apiResult.text) {
+      data = { ...defaults, answer: apiResult.text }
+    } else if (apiResult.message && typeof apiResult.message === 'string') {
+      data = { ...defaults, answer: apiResult.message }
+    }
+  }
+
+  // Path 3: raw_response fallback
+  if ((!data || !data.answer) && apiResult.raw_response) {
+    const rawParsed = safeParseResult(apiResult.raw_response)
+    if (rawParsed.answer) {
+      data = rawParsed
+    } else if (typeof apiResult.raw_response === 'string') {
+      data = { ...defaults, answer: apiResult.raw_response }
+    }
+  }
+
+  if (!data) return defaults
+
+  // Safely coerce arrays
+  const safeArray = (val: any): string[] => {
+    if (Array.isArray(val)) return val.map(String)
+    if (typeof val === 'string') {
+      try {
+        const parsed = JSON.parse(val)
+        if (Array.isArray(parsed)) return parsed.map(String)
+      } catch { /* not an array string */ }
+      return val.length > 0 ? [val] : []
+    }
+    return []
+  }
+
+  return {
+    answer: data.answer || data.text || data.response || data.content || data.message || '',
+    sources_consulted: safeArray(data.sources_consulted),
+    compliance_status: (data.compliance_status || 'compliant').toLowerCase(),
+    domains_accessed: safeArray(data.domains_accessed),
+    confidence: (data.confidence || 'medium').toLowerCase(),
+    flags: safeArray(data.flags),
+  }
 }
 
 function formatTimestamp(ts: string): string {
@@ -139,38 +248,213 @@ function generateId(): string {
 // ========================
 // MARKDOWN RENDERER
 // ========================
-function formatInline(text: string) {
-  const parts = text.split(/\*\*(.*?)\*\*/g)
-  if (parts.length === 1) return text
-  return parts.map((part, i) =>
-    i % 2 === 1 ? (
-      <strong key={i} className="font-semibold">{part}</strong>
-    ) : (
-      <React.Fragment key={i}>{part}</React.Fragment>
-    )
-  )
+function formatInline(text: string): React.ReactNode {
+  // Handle bold, italic, inline code, and links
+  const tokens: React.ReactNode[] = []
+  let remaining = text
+  let keyIdx = 0
+
+  while (remaining.length > 0) {
+    // Bold: **text**
+    const boldMatch = remaining.match(/^(.*?)\*\*(.*?)\*\*(.*)$/s)
+    if (boldMatch) {
+      if (boldMatch[1]) tokens.push(<React.Fragment key={keyIdx++}>{boldMatch[1]}</React.Fragment>)
+      tokens.push(<strong key={keyIdx++} className="font-semibold text-foreground">{boldMatch[2]}</strong>)
+      remaining = boldMatch[3]
+      continue
+    }
+    // Italic: *text*
+    const italicMatch = remaining.match(/^(.*?)\*(.*?)\*(.*)$/s)
+    if (italicMatch) {
+      if (italicMatch[1]) tokens.push(<React.Fragment key={keyIdx++}>{italicMatch[1]}</React.Fragment>)
+      tokens.push(<em key={keyIdx++}>{italicMatch[2]}</em>)
+      remaining = italicMatch[3]
+      continue
+    }
+    // Inline code: `text`
+    const codeMatch = remaining.match(/^(.*?)`(.*?)`(.*)$/s)
+    if (codeMatch) {
+      if (codeMatch[1]) tokens.push(<React.Fragment key={keyIdx++}>{codeMatch[1]}</React.Fragment>)
+      tokens.push(
+        <code key={keyIdx++} className="px-1.5 py-0.5 rounded text-xs font-mono" style={{ backgroundColor: 'hsl(20 18% 15%)' }}>
+          {codeMatch[2]}
+        </code>
+      )
+      remaining = codeMatch[3]
+      continue
+    }
+    // No more matches, push the rest
+    tokens.push(<React.Fragment key={keyIdx++}>{remaining}</React.Fragment>)
+    break
+  }
+
+  return tokens.length === 1 ? tokens[0] : <>{tokens}</>
 }
 
 function renderMarkdown(text: string) {
   if (!text) return null
-  return (
-    <div className="space-y-2">
-      {text.split('\n').map((line, i) => {
-        if (line.startsWith('### '))
-          return <h4 key={i} className="font-semibold text-sm mt-3 mb-1">{line.slice(4)}</h4>
-        if (line.startsWith('## '))
-          return <h3 key={i} className="font-semibold text-base mt-3 mb-1">{line.slice(3)}</h3>
-        if (line.startsWith('# '))
-          return <h2 key={i} className="font-bold text-lg mt-4 mb-2">{line.slice(2)}</h2>
-        if (line.startsWith('- ') || line.startsWith('* '))
-          return <li key={i} className="ml-4 list-disc text-sm">{formatInline(line.slice(2))}</li>
-        if (/^\d+\.\s/.test(line))
-          return <li key={i} className="ml-4 list-decimal text-sm">{formatInline(line.replace(/^\d+\.\s/, ''))}</li>
-        if (!line.trim()) return <div key={i} className="h-1" />
-        return <p key={i} className="text-sm leading-relaxed">{formatInline(line)}</p>
-      })}
-    </div>
-  )
+
+  const lines = text.split('\n')
+  const elements: React.ReactNode[] = []
+  let inCodeBlock = false
+  let codeLines: string[] = []
+  let listItems: React.ReactNode[] = []
+  let listType: 'ul' | 'ol' | null = null
+
+  const flushList = (currentIdx: number) => {
+    if (listItems.length > 0 && listType) {
+      if (listType === 'ul') {
+        elements.push(
+          <ul key={`list-${currentIdx}`} className="ml-4 space-y-1 my-2 list-disc">
+            {listItems}
+          </ul>
+        )
+      } else {
+        elements.push(
+          <ol key={`list-${currentIdx}`} className="ml-4 space-y-1 my-2 list-decimal">
+            {listItems}
+          </ol>
+        )
+      }
+      listItems = []
+      listType = null
+    }
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+
+    // Code blocks
+    if (line.trim().startsWith('```')) {
+      if (inCodeBlock) {
+        elements.push(
+          <pre key={i} className="rounded-md p-3 text-xs font-mono overflow-x-auto my-2" style={{ backgroundColor: 'hsl(20 18% 12%)' }}>
+            <code>{codeLines.join('\n')}</code>
+          </pre>
+        )
+        codeLines = []
+        inCodeBlock = false
+      } else {
+        flushList(i)
+        inCodeBlock = true
+      }
+      continue
+    }
+    if (inCodeBlock) {
+      codeLines.push(line)
+      continue
+    }
+
+    // Horizontal rule
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.trim())) {
+      flushList(i)
+      elements.push(<hr key={i} className="border-border my-3" />)
+      continue
+    }
+
+    // Headers
+    if (line.startsWith('#### ')) {
+      flushList(i)
+      elements.push(
+        <h5 key={i} className="font-semibold text-sm mt-3 mb-1 tracking-wide" style={{ color: 'hsl(35 20% 85%)' }}>
+          {formatInline(line.slice(5))}
+        </h5>
+      )
+      continue
+    }
+    if (line.startsWith('### ')) {
+      flushList(i)
+      elements.push(
+        <h4 key={i} className="font-semibold text-sm mt-4 mb-1.5 tracking-wide" style={{ color: 'hsl(36 60% 45%)' }}>
+          {formatInline(line.slice(4))}
+        </h4>
+      )
+      continue
+    }
+    if (line.startsWith('## ')) {
+      flushList(i)
+      elements.push(
+        <h3 key={i} className="font-semibold text-base mt-4 mb-2 font-serif tracking-wide" style={{ color: 'hsl(36 60% 40%)' }}>
+          {formatInline(line.slice(3))}
+        </h3>
+      )
+      continue
+    }
+    if (line.startsWith('# ')) {
+      flushList(i)
+      elements.push(
+        <h2 key={i} className="font-bold text-lg mt-5 mb-2 font-serif tracking-wide" style={{ color: 'hsl(36 60% 38%)' }}>
+          {formatInline(line.slice(2))}
+        </h2>
+      )
+      continue
+    }
+
+    // Blockquote
+    if (line.startsWith('> ')) {
+      flushList(i)
+      elements.push(
+        <blockquote key={i} className="border-l-2 pl-3 my-2 text-sm text-muted-foreground italic" style={{ borderColor: 'hsl(36 60% 31%)' }}>
+          {formatInline(line.slice(2))}
+        </blockquote>
+      )
+      continue
+    }
+
+    // Unordered list items
+    if (line.match(/^(\s*)([-*+])\s(.+)/)) {
+      const match = line.match(/^(\s*)([-*+])\s(.+)/)!
+      const indent = match[1].length
+      if (listType !== 'ul') {
+        flushList(i)
+        listType = 'ul'
+      }
+      listItems.push(
+        <li key={`li-${i}`} className="text-sm leading-relaxed" style={{ marginLeft: indent > 0 ? `${indent * 8}px` : undefined }}>
+          {formatInline(match[3])}
+        </li>
+      )
+      continue
+    }
+
+    // Ordered list items
+    if (/^\s*\d+\.\s/.test(line)) {
+      const match = line.match(/^(\s*)\d+\.\s(.+)/)
+      if (match) {
+        const indent = match[1].length
+        if (listType !== 'ol') {
+          flushList(i)
+          listType = 'ol'
+        }
+        listItems.push(
+          <li key={`li-${i}`} className="text-sm leading-relaxed" style={{ marginLeft: indent > 0 ? `${indent * 8}px` : undefined }}>
+            {formatInline(match[2])}
+          </li>
+        )
+        continue
+      }
+    }
+
+    // Empty line
+    if (!line.trim()) {
+      flushList(i)
+      elements.push(<div key={i} className="h-2" />)
+      continue
+    }
+
+    // Regular paragraph
+    flushList(i)
+    elements.push(
+      <p key={i} className="text-sm leading-relaxed" style={{ lineHeight: '1.65', letterSpacing: '0.01em' }}>
+        {formatInline(line)}
+      </p>
+    )
+  }
+
+  // Flush any remaining list
+  flushList(lines.length)
+
+  return <div className="space-y-1">{elements}</div>
 }
 
 // ========================
@@ -626,25 +910,30 @@ export default function Page() {
     try {
       const result = await callAIAgent(msg, MANAGER_AGENT_ID, { session_id: sessionId })
 
-      let parsed: any = {}
-      if (result.success && result.response?.result) {
-        parsed = safeParseResult(result.response.result)
-      }
+      // Use deep extraction to handle all possible response structures
+      const extracted = deepExtractResponse(result)
 
-      const answerText = parsed?.answer || (result.response ? extractText(result.response) : '') || 'No response received.'
+      // Fallback: if deep extraction found nothing, try extractText utility
+      let finalAnswer = extracted.answer
+      if (!finalAnswer && result.response) {
+        finalAnswer = extractText(result.response)
+      }
+      if (!finalAnswer) {
+        finalAnswer = 'I was unable to retrieve relevant information for your query. Please ensure knowledge base documents have been uploaded, or try rephrasing your question.'
+      }
 
       const agentMsg: ChatMessage = {
         id: generateId(),
         role: 'agent',
-        content: answerText,
+        content: finalAnswer,
         timestamp: new Date().toISOString(),
         parsedResponse: {
-          answer: answerText,
-          sources_consulted: Array.isArray(parsed?.sources_consulted) ? parsed.sources_consulted : [],
-          compliance_status: parsed?.compliance_status || 'compliant',
-          domains_accessed: Array.isArray(parsed?.domains_accessed) ? parsed.domains_accessed : [],
-          confidence: parsed?.confidence || 'medium',
-          flags: Array.isArray(parsed?.flags) ? parsed.flags : [],
+          answer: finalAnswer,
+          sources_consulted: extracted.sources_consulted,
+          compliance_status: extracted.compliance_status,
+          domains_accessed: extracted.domains_accessed,
+          confidence: extracted.confidence,
+          flags: extracted.flags,
         },
       }
 
@@ -654,20 +943,21 @@ export default function Page() {
         id: generateId(),
         timestamp: new Date().toISOString(),
         query: userMsg.content,
-        responseStatus: agentMsg.parsedResponse?.compliance_status || 'compliant',
-        domainsAccessed: agentMsg.parsedResponse?.domains_accessed || [],
-        confidence: agentMsg.parsedResponse?.confidence || 'medium',
+        responseStatus: extracted.compliance_status,
+        domainsAccessed: extracted.domains_accessed,
+        confidence: extracted.confidence,
         sessionId: sessionId,
-        fullResponse: agentMsg.content,
-        sourcesConsulted: agentMsg.parsedResponse?.sources_consulted || [],
-        flags: agentMsg.parsedResponse?.flags || [],
+        fullResponse: extracted.answer || finalAnswer,
+        sourcesConsulted: extracted.sources_consulted,
+        flags: extracted.flags,
       }
       setAuditLog(prev => [...prev, auditEntry])
-    } catch {
+    } catch (err) {
+      const errorDetail = err instanceof Error ? err.message : 'Unknown error'
       const errorMsg: ChatMessage = {
         id: generateId(),
         role: 'agent',
-        content: 'An error occurred while processing your query. Please try again.',
+        content: `An error occurred while processing your query: ${errorDetail}. Please try again.`,
         timestamp: new Date().toISOString(),
       }
       setMessages(prev => [...prev, errorMsg])
@@ -878,48 +1168,60 @@ export default function Page() {
                         }
 
                         const pr = msg.parsedResponse
+                        const hasMetadata = pr && (
+                          (Array.isArray(pr.domains_accessed) && pr.domains_accessed.length > 0) ||
+                          (Array.isArray(pr.sources_consulted) && pr.sources_consulted.length > 0) ||
+                          pr.compliance_status ||
+                          (Array.isArray(pr.flags) && pr.flags.length > 0)
+                        )
                         return (
                           <div key={msg.id} className="flex justify-start">
                             <div className="max-w-[85%] w-full">
                               <Card className="bg-card border-border shadow-lg">
-                                <CardContent className="p-4">
-                                  {/* Answer */}
-                                  <div className="mb-3">
+                                <CardContent className="p-5">
+                                  {/* Agent label */}
+                                  <div className="flex items-center gap-2 mb-3">
+                                    <div className="h-2 w-2 rounded-full flex-shrink-0" style={{ backgroundColor: 'hsl(36 60% 31%)' }} />
+                                    <span className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">Intelligence Hub</span>
+                                    {pr && <ComplianceBadge status={pr.compliance_status} />}
+                                  </div>
+
+                                  {/* Answer content */}
+                                  <div className="mb-4">
                                     {renderMarkdown(pr?.answer || msg.content)}
                                   </div>
 
-                                  {/* Metadata Row */}
-                                  {pr && (
-                                    <div className="space-y-3 pt-3 border-t border-border">
-                                      {/* Domains */}
+                                  {/* Metadata footer */}
+                                  {hasMetadata && (
+                                    <div className="space-y-2.5 pt-3 border-t border-border">
+                                      {/* Domains accessed row */}
                                       {Array.isArray(pr.domains_accessed) && pr.domains_accessed.length > 0 && (
                                         <div className="flex flex-wrap items-center gap-1.5">
-                                          <span className="text-[10px] text-muted-foreground uppercase tracking-wider mr-1">Sources:</span>
+                                          <span className="text-[10px] text-muted-foreground uppercase tracking-wider mr-1">Domains:</span>
                                           {pr.domains_accessed.map((d, i) => (
-                                            <Badge key={i} className="text-[10px] px-2 py-0 border-0" style={{ backgroundColor: 'hsl(36 60% 31% / 0.2)', color: 'hsl(36 60% 50%)' }}>
+                                            <Badge key={i} className="text-[10px] px-2 py-0.5 border-0 font-medium" style={{ backgroundColor: 'hsl(36 60% 31% / 0.2)', color: 'hsl(36 60% 50%)' }}>
                                               {d}
                                             </Badge>
                                           ))}
                                         </div>
                                       )}
 
-                                      {/* Sources Consulted */}
+                                      {/* Sources consulted row */}
                                       {Array.isArray(pr.sources_consulted) && pr.sources_consulted.length > 0 && (
                                         <div className="flex flex-wrap items-center gap-1.5">
                                           <span className="text-[10px] text-muted-foreground uppercase tracking-wider mr-1">Knowledge:</span>
                                           {pr.sources_consulted.map((s, i) => (
-                                            <Badge key={i} variant="outline" className="text-[10px] px-2 py-0">{s}</Badge>
+                                            <Badge key={i} variant="outline" className="text-[10px] px-2 py-0.5">{s}</Badge>
                                           ))}
                                         </div>
                                       )}
 
-                                      {/* Status & Confidence */}
+                                      {/* Confidence row */}
                                       <div className="flex flex-wrap items-center gap-3">
-                                        <ComplianceBadge status={pr.compliance_status} />
                                         <ConfidenceIndicator level={pr.confidence} />
                                       </div>
 
-                                      {/* Flags */}
+                                      {/* Flags row */}
                                       {Array.isArray(pr.flags) && pr.flags.length > 0 && (
                                         <div className="flex flex-wrap gap-1.5">
                                           {pr.flags.map((flag, i) => (
