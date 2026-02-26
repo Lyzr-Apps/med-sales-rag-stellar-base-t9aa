@@ -1,0 +1,17 @@
+{
+  "nodes": [
+    {"id": "input_node", "type": "Input", "label": "User Query", "nodeCategory": "input"},
+    {"id": "manager_agent", "type": "Agent", "label": "Query Orchestrator Manager", "nodeCategory": "agent"},
+    {"id": "sales_agent", "type": "Agent", "label": "Sales & Territory Agent", "nodeCategory": "agent"},
+    {"id": "hcp_agent", "type": "Agent", "label": "HCP & Doctor Profile Agent", "nodeCategory": "agent"},
+    {"id": "compliance_agent", "type": "Agent", "label": "Compliance Guard Agent", "nodeCategory": "agent"},
+    {"id": "output_node", "type": "Output", "label": "Compliant Response", "nodeCategory": "end"}
+  ],
+  "edges": [
+    {"source": "input_node", "target": "manager_agent"},
+    {"source": "manager_agent", "target": "sales_agent"},
+    {"source": "manager_agent", "target": "hcp_agent"},
+    {"source": "manager_agent", "target": "compliance_agent"},
+    {"source": "manager_agent", "target": "output_node"}
+  ]
+}

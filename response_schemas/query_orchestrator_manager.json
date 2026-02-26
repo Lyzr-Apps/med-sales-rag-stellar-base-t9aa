@@ -1,0 +1,15 @@
+{
+  "agent_name": "Query Orchestrator Manager",
+  "agent_id": "69a00df43dc260b752bd74d9",
+  "agent_type": "json",
+  "accessor": "json",
+  "has_module_outputs": false,
+  "response_schema": {
+    "answer": "string",
+    "sources_consulted": "string[]",
+    "compliance_status": "string (compliant|redacted|flagged)",
+    "domains_accessed": "string[]",
+    "confidence": "string (high|medium|low)",
+    "flags": "string[]"
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "agent_name": "Query Orchestrator Manager",
+  "agent_id": "69a00df43dc260b752bd74d9",
+  "description": "Coordinates sub-agents to retrieve and synthesize answers from multiple knowledge domains. Routes queries to relevant sub-agents, aggregates results, and ensures compliant final output.",
+  "agent_type": "json",
+  "accessor": "result",
+  "auto_generated": true,
+  "response_schema": {
+    "answer": "string",
+    "sources_consulted": [
+      "string"
+    ],
+    "compliance_status": "string",
+    "domains_accessed": [
+      "string"
+    ],
+    "confidence": "string",
+    "flags": [
+      "string"
+    ]
+  },
+  "example_response": {
+    "answer": "The synthesized answer from all consulted agents",
+    "sources_consulted": [
+      "sample string"
+    ],
+    "compliance_status": "Compliance review status",
+    "domains_accessed": [
+      "sample string"
+    ],
+    "confidence": "Overall confidence in the answer",
+    "flags": [
+      "sample string"
+    ]
+  }
+}

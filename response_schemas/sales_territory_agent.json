@@ -1,0 +1,16 @@
+{
+  "agent_name": "Sales & Territory Agent",
+  "agent_id": "69a00dc76fed800e9b9b52a9",
+  "agent_type": "json",
+  "accessor": "json",
+  "has_module_outputs": false,
+  "has_knowledge_base": true,
+  "rag_id": "69a00d98f572c99c0ffb7691",
+  "response_schema": {
+    "answer": "string",
+    "data_points": "string[]",
+    "sources": "string[]",
+    "confidence": "string (high|medium|low)",
+    "domain": "string"
+  }
+}

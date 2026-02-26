@@ -1,0 +1,14 @@
+{
+  "agent_name": "Compliance Guard Agent",
+  "agent_id": "69a00ddcfddac4fa01fac4e7",
+  "agent_type": "json",
+  "accessor": "json",
+  "has_module_outputs": false,
+  "response_schema": {
+    "compliance_status": "string (compliant|redacted|flagged)",
+    "reviewed_content": "string",
+    "flags": "string[]",
+    "review_notes": "string",
+    "domain": "string"
+  }
+}

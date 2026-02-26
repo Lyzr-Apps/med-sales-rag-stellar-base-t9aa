@@ -1,0 +1,16 @@
+{
+  "agent_name": "HCP & Doctor Profile Agent",
+  "agent_id": "69a00dc7d43403a91b332805",
+  "agent_type": "json",
+  "accessor": "json",
+  "has_module_outputs": false,
+  "has_knowledge_base": true,
+  "rag_id": "69a00d9800c2d274880efd81",
+  "response_schema": {
+    "answer": "string",
+    "profiles": "string[]",
+    "sources": "string[]",
+    "confidence": "string (high|medium|low)",
+    "domain": "string"
+  }
+}
