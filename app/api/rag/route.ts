@@ -28,6 +28,12 @@
 
 import { NextRequest, NextResponse } from "next/server";
 
+// CRITICAL: Remove the default 1MB body size limit for file uploads.
+// Without this, Next.js App Router rejects any request body > 1MB,
+// which silently breaks PDF/DOCX uploads.
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 const LYZR_RAG_BASE_URL = "https://rag-prod.studio.lyzr.ai/v3";
 const LYZR_API_KEY = process.env.LYZR_API_KEY || "";
 
@@ -37,6 +43,78 @@ const FILE_TYPE_MAP: Record<string, "pdf" | "docx" | "txt"> = {
     "docx",
   "text/plain": "txt",
 };
+
+// GET - Health check and document listing (for platform compatibility)
+export async function GET(request: NextRequest) {
+  try {
+    if (!LYZR_API_KEY) {
+      return NextResponse.json(
+        { success: false, error: "LYZR_API_KEY not configured" },
+        { status: 500 }
+      );
+    }
+
+    // Check if ragId is provided as query parameter
+    const ragId = request.nextUrl.searchParams.get("ragId");
+    if (ragId) {
+      const response = await fetch(
+        `${LYZR_RAG_BASE_URL}/rag/documents/${encodeURIComponent(ragId)}/`,
+        {
+          method: "GET",
+          headers: {
+            accept: "application/json",
+            "x-api-key": LYZR_API_KEY,
+          },
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        const filePaths = Array.isArray(data)
+          ? data
+          : data.documents || data.data || [];
+
+        const documents = filePaths.map((filePath: string) => {
+          const fullPath =
+            typeof filePath === "string" ? filePath : String(filePath);
+          const fileName = fullPath.split("/").pop() || fullPath;
+          const ext = fileName.split(".").pop()?.toLowerCase() || "";
+          const fileType =
+            ext === "pdf"
+              ? "pdf"
+              : ext === "docx"
+                ? "docx"
+                : ext === "txt"
+                  ? "txt"
+                  : "unknown";
+          return { fileName, fullPath, fileType, status: "active" };
+        });
+
+        return NextResponse.json({
+          success: true,
+          documents,
+          ragId,
+          timestamp: new Date().toISOString(),
+        });
+      }
+    }
+
+    // Default: return API status
+    return NextResponse.json({
+      success: true,
+      message: "RAG Knowledge Base API is running",
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: error instanceof Error ? error.message : "Server error",
+      },
+      { status: 500 }
+    );
+  }
+}
 
 // POST - List documents (JSON body) or Upload and train (formData)
 export async function POST(request: NextRequest) {

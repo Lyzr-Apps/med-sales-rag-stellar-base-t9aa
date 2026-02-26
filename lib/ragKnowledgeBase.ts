@@ -100,6 +100,9 @@ export async function getDocuments(ragId: string): Promise<GetDocumentsResponse>
 
 /**
  * Upload and train a document to the knowledge base
+ *
+ * Uses native fetch instead of fetchWrapper to avoid redirect interception
+ * that can silently abort multipart/form-data uploads in iframe environments.
  */
 export async function uploadAndTrainDocument(ragId: string, file: File): Promise<UploadResponse> {
   // Validate file type - check both MIME type and file extension
@@ -127,15 +130,26 @@ export async function uploadAndTrainDocument(ragId: string, file: File): Promise
     formData.append('ragId', ragId)
     formData.append('file', uploadFile, uploadFile.name)
 
-    const response = await fetchWrapper('/api/rag', {
+    // Use native fetch directly — fetchWrapper's redirect interception
+    // can silently abort multipart uploads (it calls window.location.href
+    // on response.redirected, which cancels the upload)
+    const response = await fetch('/api/rag', {
       method: 'POST',
       body: formData,
     })
 
-    if (!response) {
-      return {
-        success: false,
-        error: 'Upload request failed - no response from server. Please try again.',
+    if (!response.ok) {
+      try {
+        const errorData = await response.json()
+        return {
+          success: false,
+          error: errorData.error || errorData.details || `Upload failed (status ${response.status})`,
+        }
+      } catch {
+        return {
+          success: false,
+          error: `Upload failed with status ${response.status}. The file may be too large or the server timed out.`,
+        }
       }
     }
 
@@ -157,7 +171,7 @@ export async function deleteDocuments(
   documentNames: string[]
 ): Promise<DeleteResponse> {
   try {
-    const response = await fetchWrapper('/api/rag', {
+    const response = await fetch('/api/rag', {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
@@ -165,8 +179,13 @@ export async function deleteDocuments(
       body: JSON.stringify({ ragId, documentNames }),
     })
 
-    if (!response) {
-      return { success: false, error: 'No response from server' }
+    if (!response.ok) {
+      try {
+        const errorData = await response.json()
+        return { success: false, error: errorData.error || `Delete failed (status ${response.status})` }
+      } catch {
+        return { success: false, error: `Delete failed with status ${response.status}` }
+      }
     }
 
     const data = await response.json()

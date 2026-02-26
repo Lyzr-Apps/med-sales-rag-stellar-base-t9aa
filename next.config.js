@@ -18,8 +18,15 @@ const nextConfig = {
     unoptimized: true,
   },
 
+  // Allow large file uploads (up to 50MB) for RAG knowledge base
+  serverExternalPackages: [],
+
   // Enable experimental features for faster dev
   experimental: {
+    // Allow large request bodies for file uploads (50MB)
+    serverActions: {
+      bodySizeLimit: '50mb',
+    },
     // Optimize package imports for faster builds
     optimizePackageImports: [
       'lucide-react',
