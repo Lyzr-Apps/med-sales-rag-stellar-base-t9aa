@@ -3,19 +3,25 @@
     "query_orchestrator_manager": {
       "agent_id": "69a00df43dc260b752bd74d9",
       "type": "manager",
-      "model": "gpt-4.1"
+      "model": "gpt-4.1",
+      "last_updated": "2026-02-26",
+      "update_reason": "Improved query forwarding: exact user query passthrough, keyword preservation, no rephrasing"
     },
     "sales_territory_agent": {
       "agent_id": "69a00dc76fed800e9b9b52a9",
       "type": "sub-agent",
       "model": "gpt-4.1",
-      "rag_id": "69a00d98f572c99c0ffb7691"
+      "rag_id": "69a00d98f572c99c0ffb7691",
+      "last_updated": "2026-02-26",
+      "update_reason": "Enhanced exhaustive search, keyword matching (WhatsApp, WBP, etc.), direct quoting, comprehensive list extraction"
     },
     "hcp_doctor_profile_agent": {
       "agent_id": "69a00dc7d43403a91b332805",
       "type": "sub-agent",
       "model": "gpt-4.1",
-      "rag_id": "69a00d9800c2d274880efd81"
+      "rag_id": "69a00d9800c2d274880efd81",
+      "last_updated": "2026-02-26",
+      "update_reason": "Enhanced exhaustive search, keyword variation matching, comprehensive profile extraction, direct quoting"
     },
     "compliance_guard_agent": {
       "agent_id": "69a00ddcfddac4fa01fac4e7",

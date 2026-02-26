@@ -738,13 +738,15 @@ function KBSection({
     setLoading(false)
   }
 
-  const handleDelete = async (fileName: string) => {
+  const handleDelete = async (doc: RAGDocument) => {
     setLoading(true)
     setStatusMsg('')
     try {
-      const result = await deleteDocuments(ragId, [fileName])
+      // Send fullPath if available (needed by Lyzr RAG API), fallback to fileName
+      const deleteIdentifier = doc.fullPath || doc.fileName
+      const result = await deleteDocuments(ragId, [deleteIdentifier])
       if (result.success) {
-        setStatusMsg(`"${fileName}" deleted`)
+        setStatusMsg(`"${doc.fileName}" deleted`)
         await loadDocs()
       } else {
         setStatusMsg(result.error || 'Delete failed')
@@ -824,7 +826,7 @@ function KBSection({
                   variant="ghost"
                   size="sm"
                   className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive flex-shrink-0"
-                  onClick={() => handleDelete(doc.fileName)}
+                  onClick={() => handleDelete(doc)}
                   disabled={loading}
                 >
                   <FiTrash2 className="h-3 w-3" />

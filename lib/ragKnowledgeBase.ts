@@ -28,6 +28,7 @@ export const FILE_EXTENSION_MAP: Record<string, SupportedFileType> = {
 export interface RAGDocument {
   id?: string
   fileName: string
+  fullPath?: string
   fileType: 'pdf' | 'docx' | 'txt'
   fileSize?: number
   status?: 'processing' | 'active' | 'failed' | 'deleted'

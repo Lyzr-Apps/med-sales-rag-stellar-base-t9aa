@@ -87,7 +87,8 @@ export async function POST(request: NextRequest) {
           : data.documents || data.data || [];
 
         const documents = filePaths.map((filePath: string) => {
-          const fileName = filePath.split("/").pop() || filePath;
+          const fullPath = typeof filePath === 'string' ? filePath : String(filePath);
+          const fileName = fullPath.split("/").pop() || fullPath;
           const ext = fileName.split(".").pop()?.toLowerCase() || "";
           const fileType =
             ext === "pdf"
@@ -100,6 +101,7 @@ export async function POST(request: NextRequest) {
 
           return {
             fileName,
+            fullPath,
             fileType,
             status: "active",
           };
@@ -150,11 +152,14 @@ export async function POST(request: NextRequest) {
       }
 
       // Direct upload and train in one step
+      // Use 'auto' parser for best compatibility with all PDF types including
+      // Claude artifacts, scanned documents, and PDFs with graphics/tables.
+      // Larger chunk size (2000) preserves more context per chunk for better retrieval.
       const trainFormData = new FormData();
       trainFormData.append("file", file, file.name);
-      trainFormData.append("data_parser", "llmsherpa");
-      trainFormData.append("chunk_size", "1000");
-      trainFormData.append("chunk_overlap", "100");
+      trainFormData.append("data_parser", "auto");
+      trainFormData.append("chunk_size", "2000");
+      trainFormData.append("chunk_overlap", "200");
       trainFormData.append("extra_info", "{}");
 
       const trainResponse = await fetch(
@@ -298,6 +303,7 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
+    // First, try deleting with the provided names (which may include full paths)
     const response = await fetch(
       `${LYZR_RAG_BASE_URL}/rag/${encodeURIComponent(ragId)}/docs/`,
       {
@@ -319,17 +325,84 @@ export async function DELETE(request: NextRequest) {
         ragId,
         timestamp: new Date().toISOString(),
       });
-    } else {
-      const errorText = await response.text();
-      return NextResponse.json(
-        {
-          success: false,
-          error: `Failed to delete documents: ${response.status}`,
-          details: errorText,
-        },
-        { status: response.status }
-      );
     }
+
+    // If first attempt failed, the API may need the full storage paths.
+    // Fetch document list to find matching full paths and retry.
+    const listResponse = await fetch(
+      `${LYZR_RAG_BASE_URL}/rag/documents/${encodeURIComponent(ragId)}/`,
+      {
+        method: "GET",
+        headers: {
+          accept: "application/json",
+          "x-api-key": LYZR_API_KEY,
+        },
+      }
+    );
+
+    if (listResponse.ok) {
+      const listData = await listResponse.json();
+      const allPaths: string[] = Array.isArray(listData)
+        ? listData
+        : listData.documents || listData.data || [];
+
+      // Map provided filenames to their full storage paths
+      const fullPaths = documentNames
+        .map((name: string) => {
+          // If the name already looks like a full path, use it directly
+          if (name.includes("/")) return name;
+          // Otherwise, find the matching full path from the listing
+          return allPaths.find(
+            (p: string) => p.endsWith(`/${name}`) || p === name
+          );
+        })
+        .filter(Boolean) as string[];
+
+      if (fullPaths.length > 0) {
+        const retryResponse = await fetch(
+          `${LYZR_RAG_BASE_URL}/rag/${encodeURIComponent(ragId)}/docs/`,
+          {
+            method: "DELETE",
+            headers: {
+              accept: "application/json",
+              "Content-Type": "application/json",
+              "x-api-key": LYZR_API_KEY,
+            },
+            body: JSON.stringify(fullPaths),
+          }
+        );
+
+        if (retryResponse.ok) {
+          return NextResponse.json({
+            success: true,
+            message: "Documents deleted successfully",
+            deletedCount: fullPaths.length,
+            ragId,
+            timestamp: new Date().toISOString(),
+          });
+        }
+
+        const retryErrorText = await retryResponse.text();
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Failed to delete documents: ${retryResponse.status}`,
+            details: retryErrorText,
+          },
+          { status: retryResponse.status }
+        );
+      }
+    }
+
+    const errorText = await response.text();
+    return NextResponse.json(
+      {
+        success: false,
+        error: `Failed to delete documents: ${response.status}`,
+        details: errorText,
+      },
+      { status: response.status }
+    );
   } catch (error) {
     return NextResponse.json(
       {
