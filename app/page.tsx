@@ -1124,9 +1124,32 @@ export default function Page() {
                         <h2 className="font-serif text-2xl font-bold mb-2 tracking-wide" style={{ color: 'hsl(36 60% 31%)' }}>
                           Welcome to MedRep Intelligence Hub
                         </h2>
-                        <p className="text-sm text-muted-foreground mb-8 leading-relaxed">
+                        <p className="text-sm text-muted-foreground mb-4 leading-relaxed">
                           Ask questions about your sales performance, assigned HCPs, regional data, and more. Your queries are routed through multiple knowledge domains and compliance-checked in real time.
                         </p>
+                        <div className="mb-6 p-3 rounded-lg border border-border text-left" style={{ backgroundColor: 'hsl(20 25% 7%)' }}>
+                          <div className="flex items-start gap-2.5">
+                            <FiDatabase className="h-4 w-4 mt-0.5 flex-shrink-0" style={{ color: 'hsl(36 60% 45%)' }} />
+                            <div>
+                              <p className="text-xs font-medium mb-1" style={{ color: 'hsl(36 60% 50%)' }}>
+                                Get started: Upload your documents
+                              </p>
+                              <p className="text-xs text-muted-foreground leading-relaxed">
+                                Upload sales reports, HCP profiles, territory data, and other documents to the Knowledge Base. The agent answers exclusively from your uploaded content -- including tables, charts, and structured data from PDFs.
+                              </p>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="mt-2 h-7 text-xs"
+                                style={{ borderColor: 'hsl(36 60% 31% / 0.4)', color: 'hsl(36 60% 50%)' }}
+                                onClick={() => setActiveView('kb')}
+                              >
+                                <FiUpload className="h-3 w-3 mr-1.5" />
+                                Upload Documents
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           {SUGGESTED_QUERIES.map((sq) => {
                             const SqIcon = sq.icon
@@ -1174,6 +1197,16 @@ export default function Page() {
                           pr.compliance_status ||
                           (Array.isArray(pr.flags) && pr.flags.length > 0)
                         )
+                        // Detect if response indicates no documents found
+                        const answerText = (pr?.answer || msg.content || '').toLowerCase()
+                        const isNoDocsResponse = pr?.confidence === 'low' ||
+                          answerText.includes('not found in the uploaded') ||
+                          answerText.includes('not found in the knowledge') ||
+                          answerText.includes('no relevant') ||
+                          answerText.includes('please upload') ||
+                          answerText.includes('knowledge base is empty') ||
+                          answerText.includes('no documents')
+
                         return (
                           <div key={msg.id} className="flex justify-start">
                             <div className="max-w-[85%] w-full">
@@ -1190,6 +1223,33 @@ export default function Page() {
                                   <div className="mb-4">
                                     {renderMarkdown(pr?.answer || msg.content)}
                                   </div>
+
+                                  {/* Upload prompt when no documents found */}
+                                  {isNoDocsResponse && (
+                                    <div className="mb-4 p-3 rounded-lg border border-amber-700/30" style={{ backgroundColor: 'hsl(36 60% 31% / 0.08)' }}>
+                                      <div className="flex items-start gap-2.5">
+                                        <FiDatabase className="h-4 w-4 mt-0.5 flex-shrink-0" style={{ color: 'hsl(36 60% 45%)' }} />
+                                        <div>
+                                          <p className="text-xs font-medium mb-1" style={{ color: 'hsl(36 60% 50%)' }}>
+                                            Knowledge Base documents needed
+                                          </p>
+                                          <p className="text-xs text-muted-foreground leading-relaxed">
+                                            Upload relevant PDF, DOCX, or TXT files to the Knowledge Base so the agent can answer from your actual data. Documents with tables, charts, and structured data are supported.
+                                          </p>
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="mt-2 h-7 text-xs border-amber-700/40 hover:border-amber-600/60"
+                                            style={{ color: 'hsl(36 60% 50%)' }}
+                                            onClick={() => setActiveView('kb')}
+                                          >
+                                            <FiUpload className="h-3 w-3 mr-1.5" />
+                                            Go to Knowledge Base
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
 
                                   {/* Metadata footer */}
                                   {hasMetadata && (
@@ -1209,9 +1269,11 @@ export default function Page() {
                                       {/* Sources consulted row */}
                                       {Array.isArray(pr.sources_consulted) && pr.sources_consulted.length > 0 && (
                                         <div className="flex flex-wrap items-center gap-1.5">
-                                          <span className="text-[10px] text-muted-foreground uppercase tracking-wider mr-1">Knowledge:</span>
+                                          <span className="text-[10px] text-muted-foreground uppercase tracking-wider mr-1">Documents:</span>
                                           {pr.sources_consulted.map((s, i) => (
-                                            <Badge key={i} variant="outline" className="text-[10px] px-2 py-0.5">{s}</Badge>
+                                            <Badge key={i} variant="outline" className="text-[10px] px-2 py-0.5">
+                                              <FiFile className="h-2.5 w-2.5 mr-1" />{s}
+                                            </Badge>
                                           ))}
                                         </div>
                                       )}
