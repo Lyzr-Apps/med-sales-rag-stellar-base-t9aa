@@ -140,55 +140,82 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const fileType = FILE_TYPE_MAP[file.type];
+      // Determine file type from MIME type first, then fall back to file extension
+      let fileType = FILE_TYPE_MAP[file.type];
+      if (!fileType) {
+        const ext = file.name.split(".").pop()?.toLowerCase();
+        if (ext === "pdf") fileType = "pdf";
+        else if (ext === "docx") fileType = "docx";
+        else if (ext === "txt") fileType = "txt";
+      }
       if (!fileType) {
         return NextResponse.json(
           {
             success: false,
-            error: `Unsupported file type: ${file.type}. Supported: PDF, DOCX, TXT`,
+            error: `Unsupported file type: ${file.type || 'unknown'}. Supported: PDF, DOCX, TXT`,
           },
           { status: 400 }
         );
       }
 
       // Direct upload and train in one step
-      // Use 'auto' parser for best compatibility with all PDF types including
+      // Try multiple parsers for best compatibility with all PDF types including
       // Claude artifacts, scanned documents, and PDFs with graphics/tables.
       // Larger chunk size (2000) preserves more context per chunk for better retrieval.
-      const trainFormData = new FormData();
-      trainFormData.append("file", file, file.name);
-      trainFormData.append("data_parser", "auto");
-      trainFormData.append("chunk_size", "2000");
-      trainFormData.append("chunk_overlap", "200");
-      trainFormData.append("extra_info", "{}");
+      const trainUrl = `${LYZR_RAG_BASE_URL}/train/${fileType}/?rag_id=${encodeURIComponent(ragId)}`;
+      const trainHeaders = {
+        "x-api-key": LYZR_API_KEY,
+        accept: "application/json",
+      };
 
-      const trainResponse = await fetch(
-        `${LYZR_RAG_BASE_URL}/train/${fileType}/?rag_id=${encodeURIComponent(
-          ragId
-        )}`,
-        {
-          method: "POST",
-          headers: {
-            "x-api-key": LYZR_API_KEY,
-            accept: "application/json",
-          },
-          body: trainFormData,
+      // Read file bytes once for reuse across parser attempts
+      const fileBytes = await file.arrayBuffer();
+
+      const buildTrainForm = (parser: string) => {
+        const fd = new FormData();
+        const blob = new Blob([fileBytes], { type: file.type || "application/octet-stream" });
+        fd.append("file", blob, file.name);
+        fd.append("data_parser", parser);
+        fd.append("chunk_size", "2000");
+        fd.append("chunk_overlap", "200");
+        fd.append("extra_info", "{}");
+        return fd;
+      };
+
+      // Try parsers in order: auto (best compat) → llmsherpa (layout-aware) → none (raw text)
+      const parsers = ["auto", "llmsherpa", "none"];
+      let trainData: any = null;
+      let lastTrainError = "";
+
+      for (const parser of parsers) {
+        try {
+          const resp = await fetch(trainUrl, {
+            method: "POST",
+            headers: trainHeaders,
+            body: buildTrainForm(parser),
+          });
+
+          if (resp.ok) {
+            trainData = await resp.json();
+            break;
+          }
+
+          lastTrainError = await resp.text();
+        } catch (e) {
+          lastTrainError = e instanceof Error ? e.message : "Network error during upload";
         }
-      );
+      }
 
-      if (!trainResponse.ok) {
-        const errorText = await trainResponse.text();
+      if (!trainData) {
         return NextResponse.json(
           {
             success: false,
-            error: `Failed to train document: ${trainResponse.status}`,
-            details: errorText,
+            error: `Failed to train document after trying multiple parsers`,
+            details: lastTrainError,
           },
-          { status: trainResponse.status }
+          { status: 500 }
         );
       }
-
-      const trainData = await trainResponse.json();
 
       return NextResponse.json({
         success: true,

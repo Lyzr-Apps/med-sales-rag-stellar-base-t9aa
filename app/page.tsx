@@ -722,18 +722,32 @@ function KBSection({
   }, [loadDocs])
 
   const handleUpload = async (file: File) => {
+    // Validate file size (max 50MB)
+    if (file.size > 50 * 1024 * 1024) {
+      setStatusMsg('File too large. Maximum size is 50MB.')
+      return
+    }
+
+    // Validate file extension
+    const ext = file.name.split('.').pop()?.toLowerCase()
+    if (!ext || !['pdf', 'docx', 'txt'].includes(ext)) {
+      setStatusMsg(`Unsupported file type: .${ext || 'unknown'}. Supported: PDF, DOCX, TXT`)
+      return
+    }
+
     setLoading(true)
-    setStatusMsg('')
+    setStatusMsg(`Uploading "${file.name}"...`)
     try {
       const result = await uploadAndTrainDocument(ragId, file)
       if (result.success) {
-        setStatusMsg(`"${file.name}" uploaded successfully`)
+        setStatusMsg(`"${file.name}" uploaded and indexed successfully`)
         await loadDocs()
       } else {
-        setStatusMsg(result.error || 'Upload failed')
+        setStatusMsg(result.error || 'Upload failed. Please try again.')
       }
-    } catch {
-      setStatusMsg('Error uploading file')
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : 'Unknown error'
+      setStatusMsg(`Error uploading file: ${detail}`)
     }
     setLoading(false)
   }
@@ -797,7 +811,13 @@ function KBSection({
         </div>
 
         {statusMsg && (
-          <p className={`text-xs ${statusMsg.includes('failed') || statusMsg.includes('Error') || statusMsg.includes('Failed') ? 'text-red-400' : 'text-green-400'}`}>
+          <p className={`text-xs ${
+            statusMsg.includes('failed') || statusMsg.includes('Error') || statusMsg.includes('Failed') || statusMsg.includes('Unsupported') || statusMsg.includes('too large')
+              ? 'text-red-400'
+              : statusMsg.includes('Uploading') || statusMsg.includes('...')
+                ? 'text-amber-400'
+                : 'text-green-400'
+          }`}>
             {statusMsg}
           </p>
         )}
